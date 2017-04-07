@@ -1,5 +1,6 @@
 {
   "name": "purescript-eff-object",
+  "license": "MIT",
   "ignore": [
     "**/.*",
     "node_modules",
