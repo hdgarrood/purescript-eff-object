@@ -42,10 +42,10 @@ writeProperty ::
   IsSymbol name =>
   RowCons name a w' w =>
   SProxy name ->
-  EffObject e r w ->
   a ->
+  EffObject e r w ->
   Eff e Unit
-writeProperty prx obj val =
+writeProperty prx val obj =
   unsafeWriteProperty (reflectSymbol prx) obj val
 
 foreign import unsafeWriteProperty ::
