@@ -63,15 +63,20 @@ module EffObject
   , ReadWrite
   , readProperty
   , writeProperty
+  , BoundFunction
   , BoundMethod
-  , mkBoundMethod
+  , Self
+  , mkBoundFunction
   , bind
+  , bindProperty
   ) where
 
 import Prelude
 import Control.Monad.Eff (Eff, kind Effect)
+import Control.Monad.Eff.Uncurried (EffFn1)
 import Data.Symbol (class IsSymbol, SProxy, reflectSymbol)
 import Type.Equality (class TypeEquals)
+import Unsafe.Coerce (unsafeCoerce)
 
 data ReadOnly (a :: Type)
 data WriteOnly (a :: Type)
@@ -140,18 +145,42 @@ writeProperty prx obj val =
 foreign import unsafeWriteProperty ::
   forall obj e a. String -> obj -> a -> Eff e Unit
 
--- | A method which should be called with a `this` value which is a specific
--- | kind of `EffObject`. The `fn` type argument should generally either be an
+-- | A function which should be called with a `this` value which is a specific
+-- | type. The `fn` type argument should generally either be an
 -- | `EffFn` from `purescript-eff`, or a `Fn` from `purescript-functions`.
-newtype BoundMethod e props fn = BoundMethod (EffObject e props -> fn)
+newtype BoundFunction (receiver :: Type) (fn :: Type)
+  = BoundFunction fn
 
--- | Wrap a function in a `BoundMethod` constructor to ensure that it may only
--- | be called with a `this` value of the type `EffObject e r w`.
-mkBoundMethod :: forall fn e props. fn -> BoundMethod e props fn
-mkBoundMethod fn = BoundMethod (unsafeBind fn)
+-- | Wrap a function in a `BoundFunction` constructor to ensure that it may only
+-- | be called with a `this` value of the type `receiver`.
+mkBoundFunction :: forall fn receiver. fn -> BoundFunction receiver fn
+mkBoundFunction = BoundFunction
 
--- | Run a `BoundMethod` by providing a `this` object.
-bind :: forall fn e props. EffObject e props -> BoundMethod e props fn -> fn
-bind obj (BoundMethod f) = f obj
+-- | Run a `BoundFunction` by providing a `this` object.
+bind :: forall fn receiver. receiver -> BoundFunction receiver fn -> fn
+bind obj (BoundFunction f) = unsafeBind f obj
 
-foreign import unsafeBind :: forall fn e props. fn -> EffObject e props -> fn
+foreign import unsafeBind :: forall fn receiver. fn -> receiver -> fn
+
+-- | This type provides a way of saying that a `BoundFunction` which is a
+-- | property of some `EffObject` should receive that `EffObject` as its `this`
+-- | value when called.
+data Self
+
+toSelf :: forall a. a -> Self
+toSelf = unsafeCoerce
+
+type BoundMethod fn
+  = BoundFunction Self fn
+
+bindProperty ::
+  forall e prop props props' name access fn.
+  IsSymbol name =>
+  Readable access =>
+  RowCons name prop props' props =>
+  TypeEquals prop (access (BoundMethod fn)) =>
+  SProxy name ->
+  EffObject e props ->
+  Eff e fn
+bindProperty prx obj =
+  map (bind (toSelf obj)) (readProperty prx obj)
