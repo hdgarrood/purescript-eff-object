@@ -44,7 +44,7 @@
 -- |
 -- | ```purescript
 -- | oops :: forall e. XMLHttpRequest e -> Eff (ajax :: AJAX | e) Unit
--- | oops req = writeProperty (SProxy :: SProxy "readyState") eg 0
+-- | oops req = writeProperty (SProxy :: SProxy "readyState") req 0
 -- | -- Throws:
 -- | --   A custom type error occurred while solving type class constraints:
 -- | --     Cannot write to a read-only property.
