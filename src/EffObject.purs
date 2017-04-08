@@ -1,5 +1,66 @@
+-- | This module contains declarations and some basic functions to allow you to
+-- | give PureScript types to stateful or otherwise effectful JavaScript APIs
+-- | like XMLHttpRequest or WebSocket without writing a ton of error-prone and
+-- | tedious FFI code.
+-- |
+-- | For example, if you wanted to provide a low-level typing for the
+-- | XMLHttpRequest web API, you might write the following:
+-- |
+-- | ```purescript
+-- | type XMLHttpRequest e =
+-- |   EffObject
+-- |     -- The first type argument contains effects associated with interacting
+-- |     -- with the object. Interacting with an XHR uses an AJAX effect, so
+-- |     -- we record this here.
+-- |     ( ajax :: AJAX )
+-- |     -- We record the properties as well as their types and access levels
+-- |     -- in the second type argument.
+-- |     ( onreadystatechange :: ReadWrite (Eff e Unit)
+-- |     , readyState :: ReadOnly Int
+-- |     , response :: ReadOnly (Nullable Response)
+-- |     , [...]
+-- |     )
+-- | ```
+-- |
+-- | Consumers of your API can now interact with an `XMLHttpRequest` object
+-- | using the `readProperty` or `writeProperty` functions:
+-- |
+-- | ```purescript
+-- | checkReadyState ::
+-- |   forall e.
+-- |   XMLHttpRequest e ->
+-- |   Eff (ajax :: AJAX | e) String
+-- | checkReadyState req = do
+-- |   s <- readProperty (SProxy :: SProxy "readyState") req
+-- |   pure $ if (s == done)
+-- |     then "Done!"
+-- |     else "Not done."
+-- |   where
+-- |     done = 4
+-- | ```
+-- |
+-- | Attempting to write read-only properties will produce a custom type error
+-- | explaining what happened:
+-- |
+-- | ```purescript
+-- | oops :: forall e. XMLHttpRequest e -> Eff (ajax :: AJAX | e) Unit
+-- | oops req = writeProperty (SProxy :: SProxy "readyState") eg 0
+-- | -- Throws:
+-- | --   A custom type error occurred while solving type class constraints:
+-- | --     Cannot write to a read-only property.
+-- | ```
+-- |
+-- | Note that any APIs constructed using this library will necessarily be
+-- | very low-level; you might want to build extra layers above this API, for
+-- | instance, to provide a real `ReadyState` type which ensures that it can
+-- | only take valid values.
 module EffObject
   ( EffObject
+  , class Readable
+  , class Writeable
+  , ReadOnly
+  , WriteOnly
+  , ReadWrite
   , readProperty
   , writeProperty
   , BoundMethod
@@ -10,25 +71,51 @@ module EffObject
 import Prelude
 import Control.Monad.Eff (Eff, kind Effect)
 import Data.Symbol (class IsSymbol, SProxy, reflectSymbol)
+import Type.Equality (class TypeEquals)
+
+data ReadOnly (a :: Type)
+data WriteOnly (a :: Type)
+data ReadWrite (a :: Type)
+
+class Readable (a :: Type -> Type)
+
+instance readableReadOnly :: Readable ReadOnly
+instance readableReadWrite :: Readable ReadWrite
+
+instance notReadableWriteOnly ::
+  Fail "Cannot read from a write-only property." => Readable WriteOnly
+
+class Writeable (a :: Type -> Type)
+
+instance writeableWriteOnly :: Writeable WriteOnly
+instance writeableReadWrite :: Writeable ReadWrite
+
+instance notWriteableReadOnly ::
+  Fail "Cannot write to a read-only property." => Writeable ReadOnly
 
 -- | A JavaScript object, with properties which can be read or written. The
 -- | type arguments track:
 -- |
--- | * `e`: effects associated with reading or writing attributes
--- | * `r`: readable properties
--- | * `w`: writable properties
+-- | * `e`: Effects associated with reading or writing properties
+-- | * `props`: Properties.
+-- |
+-- | The labels in the `props` row type must correspond exactly to the property
+-- | names on the underlying object, and the types in the `props` row should
+-- | be of the form `ReadOnly a`, `WriteOnly a`, or `ReadWrite a`, depending
+-- | on the access level, and where `a` is the type of the property's value.
 data EffObject
   (e :: # Effect)
-  (r :: # Type)
-  (w :: # Type)
+  (props :: # Type)
 
 -- | Read a property from an `EffObject`.
 readProperty ::
-  forall e r r' w name a.
+  forall e prop props props' name access a.
   IsSymbol name =>
-  RowCons name a r' r =>
+  Readable access =>
+  RowCons name prop props' props =>
+  TypeEquals prop (access a) =>
   SProxy name ->
-  EffObject e r w ->
+  EffObject e props ->
   Eff e a
 readProperty prx obj =
   unsafeReadProperty (reflectSymbol prx) obj
@@ -38,14 +125,16 @@ foreign import unsafeReadProperty ::
 
 -- | Write a property to an `EffObject`.
 writeProperty ::
-  forall e r w w' name a.
+  forall e prop props props' name access a.
   IsSymbol name =>
-  RowCons name a w' w =>
+  Writeable access =>
+  RowCons name prop props' props =>
+  TypeEquals prop (access a) =>
   SProxy name ->
+  EffObject e props ->
   a ->
-  EffObject e r w ->
   Eff e Unit
-writeProperty prx val obj =
+writeProperty prx obj val =
   unsafeWriteProperty (reflectSymbol prx) obj val
 
 foreign import unsafeWriteProperty ::
@@ -54,15 +143,15 @@ foreign import unsafeWriteProperty ::
 -- | A method which should be called with a `this` value which is a specific
 -- | kind of `EffObject`. The `fn` type argument should generally either be an
 -- | `EffFn` from `purescript-eff`, or a `Fn` from `purescript-functions`.
-newtype BoundMethod e r w fn = BoundMethod (EffObject e r w -> fn)
+newtype BoundMethod e props fn = BoundMethod (EffObject e props -> fn)
 
 -- | Wrap a function in a `BoundMethod` constructor to ensure that it may only
 -- | be called with a `this` value of the type `EffObject e r w`.
-mkBoundMethod :: forall fn e r w. fn -> BoundMethod e r w fn
+mkBoundMethod :: forall fn e props. fn -> BoundMethod e props fn
 mkBoundMethod fn = BoundMethod (unsafeBind fn)
 
 -- | Run a `BoundMethod` by providing a `this` object.
-bind :: forall fn e r w. EffObject e r w -> BoundMethod e r w fn -> fn
+bind :: forall fn e props. EffObject e props -> BoundMethod e props fn -> fn
 bind obj (BoundMethod f) = f obj
 
-foreign import unsafeBind :: forall fn e r w. fn -> EffObject e r w -> fn
+foreign import unsafeBind :: forall fn e props. fn -> EffObject e props -> fn
