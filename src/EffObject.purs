@@ -52,8 +52,8 @@
 -- |
 -- | Note that any APIs constructed using this library will necessarily be
 -- | very low-level; you might want to build extra layers above this API, for
--- | instance, to provide a real `ReadyState` type which ensures that it can
--- | only take valid values.
+-- | instance, to provide a real `ReadyState` type which is guaranteed to only
+-- | only take values which would are valid for `readyState` property itself.
 module EffObject
   ( EffObject
   , class Readable
@@ -67,13 +67,12 @@ module EffObject
   , BoundMethod
   , Self
   , mkBoundFunction
-  , bind
+  , bindTo
   , bindProperty
   ) where
 
 import Prelude
 import Control.Monad.Eff (Eff, kind Effect)
-import Control.Monad.Eff.Uncurried (EffFn1)
 import Data.Symbol (class IsSymbol, SProxy, reflectSymbol)
 import Type.Equality (class TypeEquals)
 import Unsafe.Coerce (unsafeCoerce)
@@ -157,10 +156,10 @@ mkBoundFunction :: forall fn receiver. fn -> BoundFunction receiver fn
 mkBoundFunction = BoundFunction
 
 -- | Run a `BoundFunction` by providing a `this` object.
-bind :: forall fn receiver. receiver -> BoundFunction receiver fn -> fn
-bind obj (BoundFunction f) = unsafeBind f obj
+bindTo :: forall fn receiver. receiver -> BoundFunction receiver fn -> fn
+bindTo obj (BoundFunction f) = unsafeBindTo f obj
 
-foreign import unsafeBind :: forall fn receiver. fn -> receiver -> fn
+foreign import unsafeBindTo :: forall fn receiver. fn -> receiver -> fn
 
 -- | This type provides a way of saying that a `BoundFunction` which is a
 -- | property of some `EffObject` should receive that `EffObject` as its `this`
@@ -183,4 +182,4 @@ bindProperty ::
   EffObject e props ->
   Eff e fn
 bindProperty prx obj =
-  map (bind (toSelf obj)) (readProperty prx obj)
+  map (bindTo (toSelf obj)) (readProperty prx obj)

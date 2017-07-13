@@ -18,7 +18,7 @@ exports.unsafeWriteProperty = function unsafeWriteProperty(prop) {
   };
 };
 
-exports.unsafeBind = function(fn) {
+exports.unsafeBindTo = function(fn) {
   return function(target) {
     return fn.bind(target);
   };
