@@ -7,6 +7,10 @@
     "bower_components",
     "output"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hdgarrood/purescript-eff-object"
+  },
   "dependencies": {
     "purescript-prelude": "^3.0.0",
     "purescript-console": "^3.0.0",
