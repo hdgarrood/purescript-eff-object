@@ -53,7 +53,7 @@
 -- | Note that any APIs constructed using this library will necessarily be
 -- | very low-level; you might want to build extra layers above this API, for
 -- | instance, to provide a real `ReadyState` type which is guaranteed to only
--- | only take values which would are valid for `readyState` property itself.
+-- | take values which would be valid the for `readyState` property itself.
 module EffObject
   ( EffObject
   , class Readable
